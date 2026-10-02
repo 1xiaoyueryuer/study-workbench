@@ -1,0 +1,5 @@
+node_modules/
+.artifacts/
+public/licenses.html
+THIRD_PARTY_NOTICES.txt
+docs/design/material-preview/

@@ -1,0 +1,28 @@
+{
+  "earnedMs": 3602468,
+  "sessions": [
+    {
+      "state": "ended",
+      "credited_ms": 3602468
+    }
+  ],
+  "lootRound": {
+    "id": 1,
+    "sequence": 16,
+    "target_ms": 1508424,
+    "progress_ms": 21631,
+    "catalog_id": "sprout",
+    "rule_version": 1
+  },
+  "holdings": [
+    {
+      "state": "display",
+      "count": 6
+    },
+    {
+      "state": "warehouse",
+      "count": 9
+    }
+  ],
+  "note": "Read-only inspection after the 60-minute process closed. Fixture pre-owned 12 items; only subsequent items came from real elapsed time."
+}

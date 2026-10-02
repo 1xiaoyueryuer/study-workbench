@@ -1,0 +1,29 @@
+{
+  "sourceBytes": 104857600,
+  "imports": 10,
+  "before": {
+    "attachments": 0,
+    "database": 319592,
+    "cache": 0,
+    "temporary": 0,
+    "backups": 0,
+    "oldDatasets": 19,
+    "reclaimable": 0,
+    "budget": 5368709120
+  },
+  "after": {
+    "attachments": 104857600,
+    "database": 434952,
+    "cache": 0,
+    "temporary": 0,
+    "backups": 0,
+    "oldDatasets": 19,
+    "reclaimable": 0,
+    "budget": 5368709120
+  },
+  "cancelled": {
+    "name": "other.pdf",
+    "status": "cancelled",
+    "reason": "The operation was aborted"
+  }
+}

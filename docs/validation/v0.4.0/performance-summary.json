@@ -1,0 +1,22 @@
+{
+  "samples": 120,
+  "nominalMinutes": 60.0,
+  "workingSetMiB": {
+    "first": 676.08203125,
+    "last": 727.078125,
+    "min": 669.8125,
+    "max": 766.28125,
+    "last10MinMin": 725.71484375,
+    "last10MinMax": 745.79296875
+  },
+  "privateBytesMiB": {
+    "first": 465.63671875,
+    "last": 509.1171875
+  },
+  "contexts": [
+    2
+  ],
+  "drops": 12415,
+  "peakCpuSumPercent": 1.2037727284514563,
+  "note": "Warm-up increase and temporary GPU allocation during concurrent tests; final interval shown explicitly. Long-running process was started before final IPC response validation and cache-reference fixes; no hot reload. Renderer scene architecture was unchanged; final isolated 5-minute run uses final renderer."
+}

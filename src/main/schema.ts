@@ -1,0 +1,22 @@
+export const migration = `
+CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL,applied_at TEXT NOT NULL);
+CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE study_sessions(id TEXT PRIMARY KEY,state TEXT NOT NULL CHECK(state IN ('running','paused','recovery_pending','ended')),pause_reason TEXT NOT NULL DEFAULT '',target_ms INTEGER NOT NULL CHECK(target_ms>0),started_at TEXT NOT NULL,ended_at TEXT,credited_ms INTEGER NOT NULL DEFAULT 0 CHECK(credited_ms>=0),checkpoint_at TEXT,timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',note TEXT NOT NULL DEFAULT '');
+CREATE UNIQUE INDEX one_active ON study_sessions((1)) WHERE state!='ended';
+CREATE TABLE rewards(id TEXT PRIMARY KEY,name TEXT NOT NULL,price_sec INTEGER NOT NULL CHECK(price_sec>0),version INTEGER NOT NULL,archived_at TEXT);
+CREATE TABLE redemption_intents(id TEXT PRIMARY KEY,reward_id TEXT NOT NULL REFERENCES rewards(id),reward_version INTEGER NOT NULL,name_snapshot TEXT NOT NULL,price_sec_snapshot INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','confirmed','cancelled')),redemption_id TEXT);
+CREATE UNIQUE INDEX one_pending ON redemption_intents((1)) WHERE state='pending';
+CREATE TABLE redemptions(id TEXT PRIMARY KEY,intent_id TEXT UNIQUE NOT NULL REFERENCES redemption_intents(id),reward_id TEXT NOT NULL REFERENCES rewards(id),name_snapshot TEXT NOT NULL,price_sec_snapshot INTEGER NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE time_entries(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,amount_ms INTEGER NOT NULL,session_id TEXT REFERENCES study_sessions(id),redemption_id TEXT UNIQUE REFERENCES redemptions(id),session_total_after_ms INTEGER,created_at TEXT NOT NULL,CHECK((kind='study' AND amount_ms>0 AND session_id IS NOT NULL AND redemption_id IS NULL) OR (kind='redeem' AND amount_ms<0 AND session_id IS NULL AND redemption_id IS NOT NULL)),UNIQUE(session_id,session_total_after_ms));
+CREATE TABLE study_day_slices(entry_id TEXT NOT NULL REFERENCES time_entries(id),local_date TEXT NOT NULL,timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',amount_ms INTEGER NOT NULL CHECK(amount_ms>0));
+CREATE INDEX daily_date ON study_day_slices(local_date);
+CREATE INDEX entry_session ON time_entries(session_id);
+CREATE TABLE command_results(operation_id TEXT PRIMARY KEY,kind TEXT NOT NULL,canonical_payload_hash TEXT NOT NULL,result_json TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE resource_categories(id TEXT PRIMARY KEY,name TEXT NOT NULL,normalized_name TEXT UNIQUE NOT NULL);
+CREATE TABLE attachments(id TEXT PRIMARY KEY,relative_path TEXT UNIQUE NOT NULL,original_name TEXT NOT NULL,mime TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,status TEXT NOT NULL);
+CREATE TABLE resources(id TEXT PRIMARY KEY,title TEXT NOT NULL,category_id TEXT REFERENCES resource_categories(id) ON DELETE SET NULL,kind TEXT NOT NULL,url TEXT,attachment_id TEXT REFERENCES attachments(id),note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,CHECK((kind='url' AND url IS NOT NULL AND attachment_id IS NULL) OR (kind='file' AND url IS NULL AND attachment_id IS NOT NULL)));
+CREATE INDEX resource_category ON resources(category_id);
+CREATE TABLE settings(key TEXT PRIMARY KEY,version INTEGER NOT NULL,value_json TEXT NOT NULL);
+CREATE TABLE daily_reviews(local_date TEXT PRIMARY KEY,note TEXT NOT NULL);
+CREATE TABLE clock_events(id INTEGER PRIMARY KEY,created_at TEXT NOT NULL,note TEXT NOT NULL);
+`;

@@ -1,0 +1,20 @@
+# Local dependencies and generated build/test/release data
+node_modules/
+.artifacts/
+# Legacy generated locations (for older checkouts)
+dist/
+release/
+.cache/
+evidence/
+test-results/
+playwright-report/
+# Local settings, credentials and user data
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite*
+*.studybackup
+*.partial
+Thumbs.db
+.DS_Store

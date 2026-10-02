@@ -1,0 +1,10 @@
+{
+  "sessions": 2920,
+  "incomeRows": 2920,
+  "dailyRows": 2920,
+  "earnedMs": 10512000000,
+  "databaseBytes": 1945600,
+  "snapshot1000Ms": 76.54499999999985,
+  "totalMs": 811.5806,
+  "note": "Synthetic year at the final bounded checkpoint shape; frequent checkpoint behavior tested separately."
+}

@@ -1,0 +1,97 @@
+{
+  "name": "study-workbench",
+  "productName": "积水书房",
+  "version": "0.4.0",
+  "private": true,
+  "description": "离线考研学习、时间奖励与玻璃水缸工作台",
+  "author": "Study Workbench",
+  "license": "UNLICENSED",
+  "main": ".artifacts/build/main/main.cjs",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/licenses.mjs && tsc --noEmit && vite build && node scripts/build.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run tests/unit.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts tests/upgrade.test.ts tests/storage-measure.test.ts",
+    "test:e2e": "vitest run tests/visual-fixture.test.ts && playwright test",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "postinstall": "node scripts/native-check.mjs",
+    "test:installed": "node scripts/installed-smoke.mjs",
+    "test:visual": "node scripts/visual-check.mjs",
+    "test:realtime": "node scripts/real-time-check.mjs",
+    "format": "prettier --write src tests scripts *.ts *.mjs *.json index.html",
+    "check": "node scripts/checks.mjs",
+    "test:fixture": "vitest run tests/visual-fixture.test.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "1.1.23",
+    "better-sqlite3": "13.0.3",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-dropzone": "14.3.8",
+    "tailwind-merge": "3.7.0",
+    "three": "0.180.0",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.63.0",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.19.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.180.0",
+    "@types/yauzl": "2.10.3",
+    "@types/yazl": "3.3.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.4.5",
+    "electron-builder": "26.17.0",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.0",
+    "vite": "8.3.1",
+    "vitest": "4.1.11"
+  },
+  "build": {
+    "appId": "io.studyworkbench.desktop",
+    "productName": "积水书房",
+    "directories": {
+      "output": ".artifacts/release/v0.4.0"
+    },
+    "files": [
+      ".artifacts/build/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "StudyWorkbench-${version}-Setup.exe"
+    },
+    "npmRebuild": false,
+    "electronDist": "node_modules/electron/dist"
+  }
+}
