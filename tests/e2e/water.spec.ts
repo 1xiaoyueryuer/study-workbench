@@ -20,10 +20,14 @@ test("daylight water spans the sidebar, survives navigation and freezes on pause
       .poll(() => page.evaluate(() => window.tankMetrics?.textureReady))
       .toBe(true);
     const bounds = await page.getByTestId("app-water").boundingBox();
-    const size = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+    const size = await page.evaluate(() => ({
+      w: document.documentElement.clientWidth,
+      h: document.documentElement.clientHeight,
+    }));
     expect(bounds!.x).toBe(0);
     expect(bounds!.y).toBe(0);
-    // Chromium reports fractional CSS bounds at Windows display scaling.
+    // Fixed inset layers cover the CSS viewport, excluding classic Windows scrollbars.
+    // Display scaling may still yield fractional CSS bounds.
     expect(Math.abs(bounds!.width - size.w)).toBeLessThan(1);
     expect(Math.abs(bounds!.height - size.h)).toBeLessThan(1);
     await page.getByLabel("本次目标分钟").fill("0.2");
