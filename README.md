@@ -2,7 +2,7 @@
 
 一个离线 Windows 学习工作台，把有效学习时间、课程资料、随机小宝贝和积分奖励放在同一个书房里。使用 Electron、React、TypeScript、SQLite 与 Three.js；数据留在本机，运行无需账号或开发服务器。
 
-[下载 Windows 正式版](https://github.com/1xiaoyueryuer/study-workbench/releases/latest) · [开发说明](docs/development.md) · [验收与限制](docs/validation.md) · [素材来源](public/assets/SOURCES.md)
+[下载 Windows 正式版](https://github.com/1xiaoyueryuer/study-workbench/releases/latest) · [开发约束](agent.md) · [开发说明](docs/development.md) · [目录与接手指南](docs/project-map.md) · [验收与限制](docs/validation.md) · [素材来源](public/assets/SOURCES.md)
 
 ![课程书架](docs/media/bookshelf.png)
 
@@ -27,10 +27,12 @@
 
 ## 开发
 
-Windows x64、Node.js 24、npm 11；依赖由锁文件固定。
+开始前必须先读 [agent.md](agent.md)。Windows x64、Node.js 24、npm 11；依赖由锁文件固定。主目录 `Projects/study-workbench` 只同步 GitHub main；实际修改与测试只在唯一 `Projects/study-workbench-dev` 工作树进行，一次一个完整功能分支。创建、中文提交、PR、合并与清理步骤见 [开发说明](docs/development.md)。
 
 ```powershell
 npm ci
+# 在唯一开发工作树设置隔离数据，避免读取真实学习库。
+$env:STUDY_DATA_DIR = Join-Path $PWD ".artifacts/data/dev"
 npm run dev
 ```
 
@@ -40,6 +42,7 @@ npm run dist:win  # 完整NSIS安装包
 ```
 
 ```text
+AGENTS.md / agent.md  自动读取入口与统一开发约束
 src/                  主进程、渲染页面与共享契约
 tests/                单元、迁移、存储与Electron测试
 scripts/              构建、素材生成和验收工具
@@ -51,7 +54,7 @@ docs/                 开发说明、历史设计、实测结论和代表截图
 node_modules/         本机依赖，Git忽略
 ```
 
-普通开发只维护这一个源码工作目录；正式应用从安装后的桌面入口启动。详细数据规则、额外验收命令和发行方法见 [开发说明](docs/development.md)。
+主目录保留已合并源码，开发工作树交付后移除内容并留下空目录，下一次从最新 main 重建。正式应用从安装后的桌面入口启动。目录职责、模块入口和后续会话的阅读顺序见 [接手指南](docs/project-map.md)。
 
 ## 验收与许可
 
