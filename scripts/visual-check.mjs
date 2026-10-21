@@ -1,3 +1,4 @@
+import { validationArgs, parkWindow } from "./validation-window.mjs";
 import { expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, readFile, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ const env = { ...process.env, STUDY_DATA_DIR: root };
 delete env.ELECTRON_RUN_AS_NODE;
 await mkdir(".artifacts/tests/video", { recursive: true });
 const app = await electron.launch({
-  args: ["."],
+  args: [".", ...validationArgs],
   env,
   recordVideo: {
     dir: resolve(".artifacts/tests/video"),
@@ -15,6 +16,7 @@ const app = await electron.launch({
   },
 });
 const page = await app.firstWindow();
+await parkWindow(app);
 await page.getByRole("button", { name: "开始学习" }).waitFor();
 await expect
   .poll(() => page.evaluate(() => window.tankMetrics?.textureReady))
@@ -62,19 +64,22 @@ const layout = [];
 const fixture = JSON.parse(
   await readFile(".artifacts/tests/visual-fixture.json", "utf8"),
 );
-for (const scale of [1.25, 1.5]) {
+for (const scale of [1, 1.25, 1.5, 2]) {
   const testEnv = {
     ...env,
     STUDY_DATA_DIR: await mkdtemp(join(tmpdir(), "study-layout-")),
   };
   await cp(fixture.root, testEnv.STUDY_DATA_DIR, { recursive: true });
   const instance = await electron.launch({
-    args: [".", `--force-device-scale-factor=${scale}`],
+    args: [".", `--force-device-scale-factor=${scale}`, ...validationArgs],
     env: testEnv,
   });
   const p = await instance.firstWindow();
+  await parkWindow(instance);
   await p.getByRole("button", { name: "开始学习" }).waitFor();
   for (const [width, height] of [
+    [1024, 680],
+    [1280, 800],
     [1366, 768],
     [1920, 1080],
   ]) {
@@ -89,11 +94,21 @@ for (const scale of [1.25, 1.5]) {
     const overflow = await p.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
     );
-    layout.push({ width, height, scale, horizontalOverflow: overflow });
+    layout.push({
+      width,
+      height,
+      scale,
+      horizontalOverflow: overflow,
+      actual: await p.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        dpr: devicePixelRatio,
+      })),
+    });
     if (overflow) throw new Error("Horizontal layout overflow");
     for (const [name, slug] of [
       ["学习资料", "books"],
-      ["收藏品", "collection"],
+      ["奖励商店", "shop"],
     ]) {
       await p.getByRole("button", { name, exact: true }).click();
       await p.waitForTimeout(800);
@@ -112,10 +127,6 @@ for (const scale of [1.25, 1.5]) {
       });
       if (over) throw new Error("Page layout overflow: " + slug);
     }
-    await p.getByRole("button", { name: /仓库 \d+\/50/ }).click();
-    await p.screenshot({
-      path: resolve(`.artifacts/tests/layout-warehouse-${width}-${scale}.png`),
-    });
     await p.getByRole("button", { name: "学习首页" }).click();
   }
   await instance.close();

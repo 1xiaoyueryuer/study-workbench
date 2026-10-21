@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -12,12 +13,11 @@ import {
   type Method,
   type Snapshot,
   type Settings,
+  type WindowState,
 } from "../shared/contracts";
+import { Shop } from "./pages/Shop";
 import { Tank } from "./Tank";
 import { FileTask } from "./components/FileTask";
-import { LootNotice } from "./components/LootNotice";
-import { Shop } from "./pages/Shop";
-import { Collection } from "./pages/Collection";
 import { Records, type SessionRow, type DailySummary } from "./pages/Records";
 import { Settings as SettingsPage, type BackupPreview } from "./pages/Settings";
 import { Home } from "./Home";
@@ -32,7 +32,6 @@ const pages = [
   ["home", "学习首页", "clock"],
   ["records", "学习记录", "calendar"],
   ["resources", "学习资料", "book"],
-  ["collection", "收藏品", "gift"],
   ["rewards", "奖励商店", "gift"],
   ["settings", "设置", "target"],
 ] as const;
@@ -47,12 +46,6 @@ const initial: Snapshot = {
   pauseReasons: [],
   storage: "ok",
   session: null,
-  pointsBalance: 0,
-  inventoryCount: 0,
-  displayCount: 0,
-  lootBlockedByCapacity: false,
-  latestLootEvent: 0,
-  migrationNotice: false,
   earnedMs: 0,
   balanceMs: 0,
   pendingMs: 0,
@@ -76,6 +69,27 @@ export function App() {
     [offset, setOffset] = useState(0),
     [target, setTarget] = useState(60),
     [synced, setSynced] = useState(true);
+  const [systemReduced, setSystemReduced] = useState(
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setSystemReduced(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const appearance = useMemo(
+    () => ({
+      ...settings.appearance,
+      lowMotion: settings.appearance.lowMotion || systemReduced,
+    }),
+    [settings.appearance, systemReduced],
+  );
+  const [windowStatus, setWindowStatus] = useState<WindowState>({
+    fullscreen: false,
+    maximized: false,
+    minimized: false,
+  });
   const current = useRef(snapshot);
   const gate = useRef(false);
   const received = useRef(Date.now());
@@ -88,12 +102,15 @@ export function App() {
       s.snapshotSeq <= prev.snapshotSeq
     )
       return;
+    if (prev.datasetId !== s.datasetId || prev.processEpoch !== s.processEpoch)
+      requestCache.current.clear();
     current.current = s;
     received.current = Date.now();
     setSnapshot(s);
   }, []);
   const call = useCallback(async (method: Method, payload: unknown = {}) => {
-    const key = method + JSON.stringify(payload);
+    const identity = `${current.current.datasetId}|${current.current.processEpoch}`;
+    const key = identity + method + JSON.stringify(payload);
     const operationId = requestCache.current.get(key) ?? crypto.randomUUID();
     requestCache.current.set(key, operationId);
     const result = await window.workbench[method]({
@@ -101,6 +118,11 @@ export function App() {
       operationId,
       payload,
     });
+    if (
+      identity !==
+      `${current.current.datasetId}|${current.current.processEpoch}`
+    )
+      throw new Error("数据集已更换，请重新操作");
     if (!result.ok) {
       if (!result.error.retryable) requestCache.current.delete(key);
       throw new Error(result.error.message);
@@ -192,6 +214,49 @@ export function App() {
     () => setTarget(settings.goal.targetMs / 60000),
     [settings.goal.targetMs],
   );
+  const focusQueue = useRef(Promise.resolve());
+  const fullscreen = useCallback(
+    (enabled?: boolean) => {
+      const next = focusQueue.current.then(async () => {
+        const actual = await call("getWindowState");
+        setWindowStatus(
+          await call("setFocusFullscreen", {
+            enabled: enabled ?? !actual.fullscreen,
+          }),
+        );
+      });
+      focusQueue.current = next.catch(() => {});
+      return next;
+    },
+    [call],
+  );
+  useEffect(() => {
+    if (!snapshot.datasetId) return;
+    const off = window.workbench.subscribeWindowState(setWindowStatus);
+    void call("getWindowState")
+      .then(setWindowStatus)
+      .catch((e) => setError(e.message));
+    return off;
+  }, [snapshot.datasetId, call]);
+  useEffect(() => {
+    if (page !== "home" && windowStatus.fullscreen)
+      void fullscreen(false).catch((e) => setError(e.message));
+  }, [page, windowStatus.fullscreen, fullscreen]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector('[role="dialog"]'))
+        return;
+      if (e.key === "F11" || e.key === "Escape") {
+        e.preventDefault();
+        if (page === "home")
+          void fullscreen(e.key === "F11" ? undefined : false).catch((e) =>
+            setError(e.message),
+          );
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [page, windowStatus.fullscreen, fullscreen]);
   const controls = (
     <div className="controls">
       {!active ? (
@@ -243,13 +308,12 @@ export function App() {
   );
   return (
     <div
-      className={`shell ${page === "home" ? "home-shell" : ""} ${active ? "immersed" : ""}`}
+      className={`shell ${page === "home" ? "home-shell" : ""} ${active ? "immersed" : ""} ${windowStatus.fullscreen && page === "home" ? "focus-fullscreen" : ""}`}
     >
-      <Tank snapshot={snapshot} appearance={settings.appearance} />
-      <LootNotice
+      <Tank
+        key={`${snapshot.datasetId}|${snapshot.processEpoch}`}
         snapshot={snapshot}
-        call={call}
-        lowMotion={settings.appearance.lowMotion}
+        appearance={appearance}
       />
       <FileTask call={call} />
       <aside className="sidebar">
@@ -287,7 +351,7 @@ export function App() {
             <i />
             离线书房 · 数据留在本机
           </div>
-          <small>0.4.0</small>
+          <small>1.0.0</small>
         </div>
       </aside>
       <main>
@@ -354,6 +418,9 @@ export function App() {
               setTarget={setTarget}
               controls={controls}
               onSettings={() => setPage("settings")}
+              fullscreen={windowStatus.fullscreen}
+              busy={busy}
+              onFullscreen={() => void run(() => fullscreen())}
             />
           )}
           {page === "records" && (
@@ -368,9 +435,6 @@ export function App() {
               setNotice={setNotice}
             />
           )}
-          {page === "rewards" && (
-            <Shop call={call} run={run} busy={busy} snapshot={snapshot} />
-          )}
           {page === "resources" && (
             <ResourceLibrary
               call={call}
@@ -379,14 +443,8 @@ export function App() {
               datasetId={snapshot.datasetId}
             />
           )}
-          {page === "collection" && (
-            <Collection
-              call={call}
-              run={run}
-              busy={busy}
-              snapshot={snapshot}
-              appearance={settings.appearance}
-            />
+          {page === "rewards" && (
+            <Shop call={call} run={run} busy={busy} snapshot={snapshot} />
           )}
           {page === "settings" && (
             <SettingsPage

@@ -57,11 +57,7 @@ export const schemas = {
     .object({
       id: id.optional(),
       name: text,
-      pricePoints: z
-        .number()
-        .int()
-        .positive()
-        .max(MAX_MS / 1000),
+      priceMs: z.number().int().positive().max(MAX_MS),
     })
     .strict(),
   archiveReward: z.object({ id }),
@@ -76,30 +72,8 @@ export const schemas = {
   renameCourse: z.object({ id, name: text }),
   renameResource: z.object({ id, title: text }),
   moveResource: z.object({ id, courseId: id }),
-  quoteTimeConversion: z.object({
-    points: z
-      .number()
-      .int()
-      .positive()
-      .max(Math.floor(MAX_MS / 60000)),
-  }),
-  confirmTimeConversion: z.object({ intentId: id }),
-  listPointTransactions: page,
-  getCollection: empty,
-  getUnseenLoot: empty,
-  acknowledgeLoot: z.object({ sequence: z.number().int().min(0).max(MAX_MS) }),
-  getInventory: empty,
-  placeCollectible: z.object({ id, tankIndex: z.number().int().min(0).max(5) }),
-  returnCollectible: z.object({ id }),
-  quoteSale: z.object({
-    ids: z
-      .array(id)
-      .min(1)
-      .max(50)
-      .refine((a) => new Set(a).size === a.length),
-  }),
-  confirmSale: z.object({ intentId: id }),
-  dismissMigrationNotice: empty,
+  getWindowState: empty,
+  setFocusFullscreen: z.object({ enabled: z.boolean() }).strict(),
   getStorageUsage: empty,
   previewCleanup: empty,
   runCleanup: empty,
@@ -143,17 +117,6 @@ export const schemas = {
 } as const;
 export type Method = keyof typeof schemas;
 const nonnegative = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-export const collectibleSchema = z.object({
-  id,
-  catalog_id: z.string(),
-  rarity_snapshot: z.number().int().min(0).max(5),
-  sell_points_snapshot: nonnegative,
-  state: z.enum(["warehouse", "display", "sold"]),
-  slot_index: z.number().int().min(0).max(49).nullable(),
-  tank_index: z.number().int().min(0).max(5).nullable(),
-  drop_event_id: nonnegative,
-  created_at: z.string(),
-});
 export const storageUsageSchema = z.object({
   attachments: nonnegative,
   database: nonnegative,
@@ -174,12 +137,40 @@ export const importResultSchema = z.object({
     }),
   ),
 });
-const conversionSchema = z.object({
-  id,
-  points: nonnegative,
-  timeMs: nonnegative,
+export const windowStateSchema = z.object({
+  fullscreen: z.boolean(),
+  maximized: z.boolean(),
+  minimized: z.boolean(),
+});
+export type WindowState = z.infer<typeof windowStateSchema>;
+export const snapshotSchema = z.object({
+  protocolVersion: z.literal(1),
+  datasetId: id,
+  processEpoch: id,
+  snapshotSeq: nonnegative,
+  dbRevision: nonnegative,
+  emittedAtUtc: z.string(),
+  phase: z.enum(["idle", "running", "paused", "recovery_pending", "ended"]),
+  pauseReasons: z.array(z.string()),
+  storage: z.enum(["ok", "saving", "error"]),
+  session: z
+    .object({
+      id,
+      targetMs: nonnegative,
+      effectiveMs: nonnegative,
+      committedMs: nonnegative,
+    })
+    .nullable(),
+  earnedMs: nonnegative,
+  balanceMs: nonnegative,
+  pendingMs: nonnegative,
+  todayMs: nonnegative,
+  lastCheckpointAt: z.string().nullable(),
 });
 export const responseSchemas = {
+  getSnapshot: snapshotSchema,
+  getWindowState: windowStateSchema,
+  setFocusFullscreen: windowStateSchema,
   listCourses: z.array(
     z.object({
       id,
@@ -195,37 +186,6 @@ export const responseSchemas = {
   deleteCourse: z.null(),
   renameResource: z.null(),
   moveResource: z.null(),
-  quoteTimeConversion: conversionSchema,
-  confirmTimeConversion: conversionSchema,
-  getCollection: z.array(collectibleSchema),
-  getInventory: z.array(collectibleSchema),
-  getUnseenLoot: z.object({
-    count: nonnegative,
-    latest: z
-      .object({
-        sequence: nonnegative,
-        catalog_id: z.string(),
-        rarity_snapshot: z.number().int().min(0).max(5),
-      })
-      .optional(),
-  }),
-  acknowledgeLoot: z.null(),
-  placeCollectible: z.null(),
-  returnCollectible: z.null(),
-  dismissMigrationNotice: z.null(),
-  quoteSale: z.object({ id, points: nonnegative, count: nonnegative }),
-  confirmSale: z.object({ id, points: nonnegative }),
-  listPointTransactions: z.array(
-    z.object({
-      id,
-      amount: z.number().int(),
-      kind: z.enum(["conversion", "sale", "purchase"]),
-      conversion_id: id.nullable(),
-      sale_id: id.nullable(),
-      redemption_id: id.nullable(),
-      created_at: z.string(),
-    }),
-  ),
   getStorageUsage: storageUsageSchema,
   previewCleanup: storageUsageSchema,
   runCleanup: storageUsageSchema,
@@ -257,20 +217,17 @@ export function parseMethodValue(method: Method, value: unknown): unknown {
 }
 
 export const readMethods: Method[] = [
+  "listRewards",
+  "listRedemptions",
+  "getRedemptionIntent",
+  "getWindowState",
   "getImportProgress",
-  "getUnseenLoot",
-  "getCollection",
-  "getInventory",
-  "listPointTransactions",
   "getStorageUsage",
   "previewCleanup",
   "getSnapshot",
   "listSessions",
   "getSession",
   "getDailySummary",
-  "listRewards",
-  "listRedemptions",
-  "getRedemptionIntent",
   "listCourses",
   "listResources",
   "getSettings",
@@ -307,12 +264,6 @@ export type Snapshot = {
     effectiveMs: number;
     committedMs: number;
   };
-  pointsBalance: number;
-  inventoryCount: number;
-  displayCount: number;
-  lootBlockedByCapacity: boolean;
-  latestLootEvent: number;
-  migrationNotice: boolean;
   earnedMs: number;
   balanceMs: number;
   pendingMs: number;
@@ -328,6 +279,7 @@ export type Bridge = {
     operationId: string,
     datasetId: string,
   ) => Promise<Result<z.infer<typeof importResultSchema>>>;
+  subscribeWindowState: (listener: (s: WindowState) => void) => () => void;
   subscribeSnapshot: (listener: (s: Snapshot) => void) => () => void;
 };
 export class DomainError extends Error {

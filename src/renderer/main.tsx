@@ -7,9 +7,6 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
-import "./rain.css";
 
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
-
-import "./workbench.css";

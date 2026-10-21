@@ -47,11 +47,11 @@ test("offline Electron flow: real timing, rewards, settings and renderer reload"
   await page.getByRole("button", { name: "结束并保存" }).click();
   await page.getByRole("button", { name: "奖励商店" }).click();
   await page.getByLabel("奖励名称").fill("喝杯茶");
-  await page.getByLabel("积分价格", { exact: true }).fill("1");
+  await page.getByLabel("所需时间（分钟）", { exact: true }).fill("1");
   await page.getByRole("button", { name: "添加奖励" }).click();
   await page.getByRole("button", { name: "兑换奖励" }).click();
   await page.getByRole("button", { name: "确认兑换", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("积分不足");
+  await expect(page.getByRole("dialog")).toContainText("可用时间不足");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   await page.screenshot({ path: resolve(".artifacts/tests/rewards.png") });
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -83,6 +83,7 @@ test("offline Electron flow: real timing, rewards, settings and renderer reload"
   await expect(
     next.getByRole("heading", { name: "喝杯茶", exact: true }),
   ).toBeVisible();
+  await next.getByRole("tab", { name: "兑换记录" }).click();
   await expect(next.locator(".receipts")).toContainText("兑换记录");
   await reopened.close();
 });

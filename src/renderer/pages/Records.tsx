@@ -1,6 +1,6 @@
 import { Button } from "../components/ui";
 import { duration, type Method } from "../../shared/contracts";
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 export type SessionRow = {
   id: string;
   credited_ms: number;
@@ -43,98 +43,122 @@ export function Records({
   mutate: (m: Method, p?: unknown) => Promise<void>;
   setNotice: (s: string) => void;
 }) {
+  const [tab, setTab] = useState("sessions");
   return (
     <>
       <h1 className="page-heading">学习记录</h1>
-      <div className="two-columns">
-        <section className="panel">
-          <h2>学习记录</h2>
-          {rows.length === 0 && (
-            <Empty text="还没有学习记录。开始第一次专注吧。" />
-          )}
-          {rows.map((r) => (
-            <article className="record" key={r.id}>
-              <div>
-                <strong>{duration(r.credited_ms)}</strong>
-                <span className="tag">
-                  {r.state === "ended" ? "已结束" : "进行中"}
-                </span>
-                <small>
-                  {dateTime(r.started_at)} · 目标 {duration(r.target_ms)}
-                </small>
-              </div>
-              <form
-                onSubmit={submit(async (f) => {
-                  await mutate("setSessionNote", {
-                    id: r.id,
-                    note: field(f, "note"),
-                  });
-                  setNotice("备注已保存");
-                })}
-              >
-                <input
-                  name="note"
-                  defaultValue={r.note}
-                  placeholder="这次学到了什么？"
-                  maxLength={10000}
-                />
-                <Button variant="ghost" disabled={busy}>
-                  保存
-                </Button>
-              </form>
-            </article>
-          ))}
-          <Pager offset={offset} count={rows.length} onChange={setOffset} />
-        </section>
-        <section className="panel">
-          <h2>每日复盘</h2>
-          <form
-            className="form"
-            key={
-              daily.reviews.find((r) => r.local_date === day())?.note ?? "new"
-            }
-            onSubmit={submit(async (f) => {
-              await mutate("setDailyReview", {
-                date: day(),
-                note: field(f, "note"),
-              });
-              setNotice("今日复盘已保存");
-            })}
+      <div className="settings-tabs" role="tablist" aria-label="记录分类">
+        {[
+          ["sessions", "学习记录"],
+          ["review", "每日复盘"],
+        ].map(([id, name]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
           >
-            <label>
-              今天的收获与明天的计划
-              <textarea
-                name="note"
-                rows={6}
-                defaultValue={
-                  daily.reviews.find((r) => r.local_date === day())?.note
-                }
-                placeholder="今天完成了什么？遇到了什么困难？"
-              />
-            </label>
-            <Button disabled={busy}>保存今日复盘</Button>
-          </form>
-          <h3>最近 90 天</h3>
-          {daily.days.map((d) => (
-            <div className="daily" key={d.local_date}>
-              <span>{d.local_date}</span>
-              <strong>{duration(d.ms)}</strong>
+            {name}
+          </button>
+        ))}
+      </div>
+      <div className="records-content">
+        {tab === "sessions" && (
+          <section className="panel">
+            <h2>学习记录</h2>
+            {rows.length === 0 && (
+              <Empty text="还没有学习记录。开始第一次专注吧。" />
+            )}
+            <div className="record-list">
+              {rows.map((r) => (
+                <article className="record" key={r.id}>
+                  <div>
+                    <strong>{duration(r.credited_ms)}</strong>
+                    <span className="tag">
+                      {r.state === "ended" ? "已结束" : "进行中"}
+                    </span>
+                    <small>
+                      {dateTime(r.started_at)} · 目标 {duration(r.target_ms)}
+                    </small>
+                  </div>
+                  <form
+                    onSubmit={submit(async (f) => {
+                      await mutate("setSessionNote", {
+                        id: r.id,
+                        note: field(f, "note"),
+                      });
+                      setNotice("备注已保存");
+                    })}
+                  >
+                    <input
+                      name="note"
+                      defaultValue={r.note}
+                      placeholder="这次学到了什么？"
+                      maxLength={10000}
+                    />
+                    <Button variant="ghost" disabled={busy}>
+                      保存
+                    </Button>
+                  </form>
+                </article>
+              ))}
             </div>
-          ))}
-          {daily.reviews
-            .filter((r) => r.local_date !== day())
-            .map((r) => (
-              <article className="review" key={r.local_date}>
-                <small>{r.local_date}</small>
-                <p>{r.note}</p>
-              </article>
-            ))}
-          {daily.clockEvents.map((r) => (
-            <p className="muted" key={r.id}>
-              {dateTime(r.created_at)} · {r.note}
-            </p>
-          ))}
-        </section>
+            <Pager offset={offset} count={rows.length} onChange={setOffset} />
+          </section>
+        )}
+        {tab === "review" && (
+          <section className="panel">
+            <h2>每日复盘</h2>
+            <form
+              className="form"
+              key={
+                daily.reviews.find((r) => r.local_date === day())?.note ?? "new"
+              }
+              onSubmit={submit(async (f) => {
+                await mutate("setDailyReview", {
+                  date: day(),
+                  note: field(f, "note"),
+                });
+                setNotice("今日复盘已保存");
+              })}
+            >
+              <label>
+                今天的收获与明天的计划
+                <textarea
+                  name="note"
+                  rows={6}
+                  defaultValue={
+                    daily.reviews.find((r) => r.local_date === day())?.note
+                  }
+                  placeholder="今天完成了什么？遇到了什么困难？"
+                />
+              </label>
+              <Button disabled={busy}>保存今日复盘</Button>
+            </form>
+            <details className="review-history">
+              <summary>最近 90 天</summary>
+              {daily.days.map((d) => (
+                <div className="daily" key={d.local_date}>
+                  <span>{d.local_date}</span>
+                  <strong>{duration(d.ms)}</strong>
+                </div>
+              ))}
+              {daily.reviews
+                .filter((r) => r.local_date !== day())
+                .map((r) => (
+                  <article className="review" key={r.local_date}>
+                    <small>{r.local_date}</small>
+                    <p>{r.note}</p>
+                  </article>
+                ))}
+              {daily.clockEvents.map((r) => (
+                <p className="muted" key={r.id}>
+                  {dateTime(r.created_at)} · {r.note}
+                </p>
+              ))}
+            </details>
+          </section>
+        )}
       </div>
     </>
   );

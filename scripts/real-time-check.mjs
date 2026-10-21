@@ -1,3 +1,4 @@
+import { validationArgs, parkWindow } from "./validation-window.mjs";
 import { _electron as electron } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,8 +6,17 @@ import { join, resolve } from "node:path";
 const root = await mkdtemp(join(tmpdir(), "study-real-time-"));
 const env = { ...process.env, STUDY_DATA_DIR: root };
 delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: ["."], env });
+await mkdir(".artifacts/tests/video", { recursive: true });
+const app = await electron.launch({
+  args: [".", ...validationArgs],
+  env,
+  recordVideo: {
+    dir: resolve(".artifacts/tests/video"),
+    size: { width: 1280, height: 800 },
+  },
+});
 const page = await app.firstWindow();
+await parkWindow(app);
 await page.getByRole("button", { name: "开始学习" }).waitFor();
 const command = async (method, payload = {}) =>
   page.evaluate(
@@ -27,6 +37,23 @@ const command = async (method, payload = {}) =>
   );
 const start = await command("startStudy", { targetMs: 60000 });
 if (!start.ok) throw new Error(start.error.message);
+await page.evaluate(() => {
+  window.__timingRects = [];
+  window.__timingTimer = window.setInterval(
+    () =>
+      window.__timingRects.push(
+        [
+          ...document.querySelectorAll(
+            ".rain-stats>div,.rain-stats small,.rain-save",
+          ),
+        ].map((e) => ({
+          text: e.textContent,
+          rect: e.getBoundingClientRect().toJSON(),
+        })),
+      ),
+    250,
+  );
+});
 const begin = process.hrtime.bigint();
 const samples = [];
 await mkdir(".artifacts/tests", { recursive: true });
@@ -85,4 +112,14 @@ await writeFile(
     2,
   ),
 );
+const rects = await page.evaluate(() => {
+  window.clearInterval(window.__timingTimer);
+  return window.__timingRects;
+});
+await writeFile(
+  ".artifacts/tests/real-time-layout.json",
+  JSON.stringify(rects),
+);
+const video = page.video();
 await app.close();
+if (video) await video.saveAs(resolve(".artifacts/tests/real-time-10min.webm"));

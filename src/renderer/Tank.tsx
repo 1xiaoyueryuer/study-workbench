@@ -13,6 +13,9 @@ type Metrics = {
   progress: number;
   textureReady: boolean;
   visualTime: number;
+  geometries: number;
+  textures: number;
+  submitMs: number;
 };
 declare global {
   interface Window {
@@ -32,8 +35,8 @@ uniform sampler2D waterPhoto, normalMap, heightMap;
 uniform vec4 drops[24];
 float gaussian(float x,float width){return exp(-x*x/(width*width));}
 float waterline(float x){
-  return fillLevel*resolution.y + sin(x*.006+clockTime*.48)*2.2
-       + sin(x*.014-clockTime*.32)*1.1;
+  float base=resolution.y*fillLevel;
+  return base+sin(x*.006+clockTime*.48)*2.2+sin(x*.014-clockTime*.32)*1.1;
 }
 void main(){
   vec2 p=uvScreen*resolution;
@@ -112,6 +115,17 @@ export function Tank({
   const host = useRef<HTMLDivElement>(null);
   const state = useRef({ snapshot, appearance });
   state.current = { snapshot, appearance };
+  const wakeRef = useRef(() => {});
+  useEffect(
+    () => wakeRef.current(),
+    [
+      snapshot.phase,
+      snapshot.session?.effectiveMs,
+      appearance.theme,
+      appearance.lowMotion,
+      appearance.quality,
+    ],
+  );
   const [error, setError] = useState(false),
     [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -131,6 +145,8 @@ export function Tank({
     setError(false);
     el.appendChild(renderer.domElement);
     renderer.setClearColor(0x000000, 0);
+    renderer.autoClear = false;
+    renderer.info.autoReset = false;
     const scene = new THREE.Scene(),
       camera = new THREE.Camera();
     const drops = Array.from(
@@ -172,6 +188,7 @@ export function Tank({
       nextDrop = 0.35,
       index = 0,
       loaded = 0;
+    let lastFrame = 0;
     let lastDraw = performance.now(),
       lastReceived = lastDraw,
       lastSeq = -1,
@@ -190,8 +207,18 @@ export function Tank({
       progress: 0,
       textureReady: false,
       visualTime: 0,
+      geometries: 0,
+      textures: 0,
+      submitMs: 0,
     };
     window.tankMetrics = metrics;
+    const wake = () => {
+      if (!disposed && !lost && !document.hidden && !raf) {
+        lastDraw = performance.now();
+        raf = requestAnimationFrame(render);
+      }
+    };
+    wakeRef.current = wake;
     const loader = new THREE.TextureLoader();
     for (const [key, file] of [
       ["waterPhoto", "sunlit-water.jpg"],
@@ -209,6 +236,7 @@ export function Tank({
           uniforms.textureReady.value = loaded === 3 ? 1 : 0;
           metrics.textureReady = loaded === 3;
           lastKey = "";
+          wake();
         },
         undefined,
         () => {
@@ -224,6 +252,7 @@ export function Tank({
       renderer.setSize(el.clientWidth, el.clientHeight);
       uniforms.resolution.value.set(el.clientWidth, el.clientHeight);
       lastKey = "";
+      wake();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -236,12 +265,15 @@ export function Tank({
     };
     renderer.domElement.addEventListener("webglcontextlost", contextLost);
     const render = () => {
+      raf = 0;
       if (disposed || lost || document.hidden) return;
-      raf = requestAnimationFrame(render);
       const now = performance.now(),
         { snapshot: s, appearance: a } = state.current;
       const elapsed = now - lastDraw;
-      if (elapsed < 1000 / (a.quality === "low" ? 30 : 60) - 0.5) return;
+      if (elapsed < 1000 / (a.quality === "low" ? 30 : 60) - 0.5) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
       const dt = Math.min(elapsed / 1000, 0.08);
       lastDraw = now;
       if (quality !== a.quality) {
@@ -302,20 +334,34 @@ export function Tank({
             ? [0.861, 0.928, 0.961]
             : [0.87, 0.943, 0.914]) as [number, number, number]),
       );
-      const staticKey = `${progress}|${s.phase}|${running}|${a.theme}|${a.lowMotion}|${a.quality}|${loaded}|${el.clientWidth}|${el.clientHeight}`;
-      if ((!running || a.lowMotion) && staticKey === lastKey) return;
-      lastKey = staticKey;
+      if (!running || a.lowMotion) {
+        const staticKey = `${progress}|${s.phase}|${running}|${a.theme}|${a.lowMotion}|${a.quality}|${loaded}|${el.clientWidth}|${el.clientHeight}`;
+        if (staticKey === lastKey) return;
+        lastKey = staticKey;
+      } else lastKey = "";
+      const submitted = performance.now();
+      renderer.info.reset();
+      renderer.clear();
       renderer.render(scene, camera);
+      metrics.geometries = renderer.info.memory.geometries;
+      metrics.textures = renderer.info.memory.textures;
+      metrics.submitMs = performance.now() - submitted;
+      if (running && !a.lowMotion && !raf) raf = requestAnimationFrame(render);
       metrics.frames++;
-      metrics.frameHistogram[Math.min(500, Math.round(elapsed))]++;
+      const frameElapsed = lastFrame ? now - lastFrame : 0;
+      if (lastFrame)
+        metrics.frameHistogram[Math.min(500, Math.round(frameElapsed))]++;
+      lastFrame = now;
       metrics.drawCalls = renderer.info.render.calls;
       metrics.triangles = renderer.info.render.triangles;
-      if (metrics.frameMs.length < 3600) metrics.frameMs.push(elapsed);
-      else metrics.frameMs[metrics.frames % 3600] = elapsed;
+      if (metrics.frameMs.length < 3600) metrics.frameMs.push(frameElapsed);
+      else metrics.frameMs[metrics.frames % 3600] = frameElapsed;
     };
     const visibility = () => {
       cancelAnimationFrame(raf);
+      raf = 0;
       lastDraw = performance.now();
+      lastFrame = 0;
       lastKey = "";
       if (!document.hidden) render();
     };
@@ -324,6 +370,7 @@ export function Tank({
     render();
     return () => {
       disposed = true;
+      wakeRef.current = () => {};
       cancelAnimationFrame(raf);
       observer.disconnect();
       document.removeEventListener("visibilitychange", visibility);
@@ -333,7 +380,9 @@ export function Tank({
       geometry.dispose();
       material.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.remove();
+      if (window.tankMetrics === metrics) delete window.tankMetrics;
     };
   }, [attempt]);
   return (

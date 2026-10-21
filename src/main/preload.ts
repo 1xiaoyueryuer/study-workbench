@@ -46,8 +46,19 @@ contextBridge.exposeInMainWorld("workbench", {
       payload: { paths, courseId },
     });
   },
+  subscribeWindowState: (
+    listener: (s: import("../shared/contracts").WindowState) => void,
+  ) => {
+    const handler = (
+      _: unknown,
+      s: import("../shared/contracts").WindowState,
+    ) => listener(s);
+    ipcRenderer.on("workbench:window", handler);
+    return () => ipcRenderer.removeListener("workbench:window", handler);
+  },
   subscribeSnapshot: (listener: (s: Snapshot) => void) => {
-    const handler = (_: unknown, s: Snapshot) => listener(s);
+    const handler = (_: unknown, s: Snapshot) =>
+      listener(parseMethodValue("getSnapshot", s) as Snapshot);
     ipcRenderer.on("workbench:snapshot", handler);
     return () => ipcRenderer.removeListener("workbench:snapshot", handler);
   },

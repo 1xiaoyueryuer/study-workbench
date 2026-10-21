@@ -32,13 +32,14 @@ test("native disk File objects cross sandbox preload; multi-file drag, duplicate
       files: [file1, file2, bad],
       dragOperationsMask: 1,
     };
-    for (const type of ["dragEnter", "dragOver", "drop"] as const)
+    for (const type of ["dragEnter", "dragOver", "drop"] as const) {
       await client.send("Input.dispatchDragEvent", {
         type,
         x: bounds.x + 100,
         y: bounds.y + 100,
         data,
       });
+    }
     await expect(page.locator(".course-file")).toHaveCount(1);
     await expect(page.locator(".import-summary")).toContainText("已在课程中");
     await expect(page.locator(".import-summary")).toContainText("不支持此格式");

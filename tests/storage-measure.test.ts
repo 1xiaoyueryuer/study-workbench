@@ -207,27 +207,18 @@ test("low disk and mid-copy ENOSPC preserve existing data and source files", asy
   d.store.close();
 });
 
-test("restore pointer failure rolls back; retry preserves owned display and the chosen loot round", async () => {
+test("restore pointer failure rolls back; retry preserves courses and reward prices", async () => {
   const fs = await import("node:fs/promises");
-  const { advanceLoot } = await import("../src/main/collection/loot");
   const root = await mkdtemp(join(tmpdir(), "study-restore-fault-")),
     d = new Datasets(root);
   await d.init();
   try {
-    d.store.db
-      .prepare("UPDATE loot_state SET target_ms=600000,catalog_id='pebble'")
-      .run();
-    d.store.db.transaction(() =>
-      advanceLoot(d.store.db, 600000, (min) => min),
-    )();
-    const item = d.store.read("getInventory", {})[0];
-    const result = d.store.command("placeCollectible", {
+    const result = d.store.command("saveReward", {
       datasetId: d.store.datasetId,
       operationId: randomUUID(),
-      payload: { id: item.id, tankIndex: 0 },
+      payload: { name: "散步", priceMs: 60000 },
     });
     expect(result.ok).toBe(true);
-    const loot = d.store.db.prepare("SELECT * FROM loot_state").get();
     const beforeId = d.store.datasetId;
     const backup = join(root, "manual.studybackup");
     await d.exportTo(backup);
@@ -253,8 +244,10 @@ test("restore pointer failure rolls back; retry preserves owned display and the 
     const retry = await d.inspect(backup);
     await d.restore(retry.token);
     expect(d.store.datasetId).not.toBe(beforeId);
-    expect(d.store.read("getCollection", {})[0].id).toBe(item.id);
-    expect(d.store.db.prepare("SELECT * FROM loot_state").get()).toEqual(loot);
+    expect(d.store.read("listRewards", {})[0]).toMatchObject({
+      name: "散步",
+      price_ms: 60000,
+    });
     d.store.audit();
   } finally {
     d.store.close();
