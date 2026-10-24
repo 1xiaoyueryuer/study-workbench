@@ -47,24 +47,21 @@ describe("real SQLite accounting and atomic commands", () => {
     const session = x.value("startStudy", { targetMs: 600000 });
     x.tick(600000);
     x.value("endStudy", { sessionId: session.id });
-    x.value("confirmTimeConversion", {
-      intentId: x.value("quoteTimeConversion", { points: 10 }).id,
-    });
-    const reward = x.value("saveReward", { name: "一集动画", pricePoints: 2 });
+    const reward = x.value("saveReward", { name: "一集动画", priceMs: 120000 });
     const intent = x.value("prepareRedemption", { rewardId: reward.id });
     const r = x.value("confirmRedemption", { intentId: intent.id });
     expect(x.value("confirmRedemption", { intentId: intent.id }).id).toBe(r.id);
-    expect(x.s.totals()).toEqual({ balance: 0, earned: 600000 });
+    expect(x.s.totals()).toEqual({ balance: 480000, earned: 600000 });
     x.s.audit();
   });
-  it("two 600ms sessions retain 1200ms and can buy one second", () => {
+  it("two 600ms sessions preserve subsecond credit without rounding", () => {
     const x = setup();
     for (let i = 0; i < 2; i++) {
       const a = x.value("startStudy", { targetMs: 1000 });
       x.tick(600);
       x.value("endStudy", { sessionId: a.id });
     }
-    const r = x.value("saveReward", { name: "一秒", pricePoints: 1 });
+    const r = x.value("saveReward", { name: "一秒", priceMs: 60000 });
     const i = x.value("prepareRedemption", { rewardId: r.id });
     expect(x.cmd("confirmRedemption", { intentId: i.id }).ok).toBe(false);
     expect(x.s.totals()).toEqual({ balance: 1200, earned: 1200 });
@@ -109,14 +106,14 @@ describe("real SQLite accounting and atomic commands", () => {
   });
   it("insufficient balance persists failure and rejects changed quotes", () => {
     const x = setup();
-    const r = x.value("saveReward", { name: "休息", pricePoints: 10 });
+    const r = x.value("saveReward", { name: "休息", priceMs: 600000 });
     const i = x.value("prepareRedemption", { rewardId: r.id });
     const op = randomUUID();
     expect(x.cmd("confirmRedemption", { intentId: i.id }, op)).toMatchObject({
       ok: false,
       error: { code: "INSUFFICIENT_BALANCE" },
     });
-    x.value("saveReward", { id: r.id, name: "改价", pricePoints: 1 });
+    x.value("saveReward", { id: r.id, name: "改价", priceMs: 60000 });
     expect(x.cmd("confirmRedemption", { intentId: i.id })).toMatchObject({
       ok: false,
       error: { code: "REWARD_CHANGED" },
@@ -147,10 +144,7 @@ describe("real SQLite accounting and atomic commands", () => {
     x.value("startStudy", { targetMs: 1000 });
     x.tick(61100);
     x.s.checkpoint();
-    x.value("confirmTimeConversion", {
-      intentId: x.value("quoteTimeConversion", { points: 1 }).id,
-    });
-    const r = x.value("saveReward", { name: "小奖", pricePoints: 1 });
+    const r = x.value("saveReward", { name: "小奖", priceMs: 60000 });
     const i = x.value("prepareRedemption", { rewardId: r.id });
     x.value("confirmRedemption", { intentId: i.id });
     const i2 = x.value("prepareRedemption", { rewardId: r.id });
@@ -200,18 +194,15 @@ describe("real SQLite accounting and atomic commands", () => {
     const x = setup();
     x.value("startStudy", { targetMs: 1000 });
     x.tick(61500);
-    x.value("confirmTimeConversion", {
-      intentId: x.value("quoteTimeConversion", { points: 1 }).id,
-    });
-    const reward = x.value("saveReward", { name: "旧名称", pricePoints: 1 });
+    const reward = x.value("saveReward", { name: "旧名称", priceMs: 60000 });
     const intent = x.value("prepareRedemption", { rewardId: reward.id });
     x.value("confirmRedemption", { intentId: intent.id });
-    x.value("saveReward", { id: reward.id, name: "新名称", pricePoints: 99 });
+    x.value("saveReward", { id: reward.id, name: "新名称", priceMs: 990000 });
     x.value("archiveReward", { id: reward.id });
     expect(x.value("listRedemptions", { offset: 0 })[0]).toMatchObject({
       name_snapshot: "旧名称",
-      price_amount: 1,
-      currency: "points",
+      price_amount: 60000,
+      currency: "study_ms",
     });
     x.s.audit();
   });

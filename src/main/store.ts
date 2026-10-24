@@ -14,13 +14,8 @@ import {
 } from "../shared/contracts";
 import { migration } from "./schema";
 import { migration2 } from "./migrations/002";
-import { initializeLoot, advanceLoot } from "./collection/loot";
-import {
-  economyRead,
-  economyMutate,
-  auditEconomy,
-  type EconomySnapshot,
-} from "./economy/economy";
+import { migration3 } from "./migrations/003";
+import { migration4 } from "./migrations/004";
 import { StudyClock, localDate } from "./time";
 const now = () => new Date().toISOString();
 export const fail = (code: string, message: string): never => {
@@ -39,7 +34,6 @@ export class Store {
   private snapshotCache: {
     revision: number;
     totals: ReturnType<Store["totals"]>;
-    economy: EconomySnapshot;
   } | null = null;
   constructor(path: string, clock = new StudyClock(), recover = true) {
     this.clock = clock;
@@ -77,12 +71,20 @@ export class Store {
         )
         .all() as { version: number; checksum: string }[];
       if (
+        Number(
+          (
+            this.db
+              .prepare("SELECT value FROM app_meta WHERE key='schema_version'")
+              .get() as { value: string }
+          ).value,
+        ) !== versions.length ||
         versions.length < 1 ||
-        versions.length > 2 ||
+        versions.length > 4 ||
         versions.some(
           (v, i) =>
             v.version !== i + 1 ||
-            v.checksum !== hash([migration, migration2][i]),
+            v.checksum !==
+              hash([migration, migration2, migration3, migration4][i]),
         )
       ) {
         this.db.close();
@@ -112,13 +114,44 @@ export class Store {
               .run();
           })
           .immediate();
-      this.db.transaction(() => initializeLoot(this.db))();
-      if (!exists)
+      if (versions.length < 3) {
+        if (exists && versions.length === 2 && path !== ":memory:") {
+          const safety = path + ".before-v3";
+          if (!existsSync(safety)) this.db.prepare("VACUUM INTO ?").run(safety);
+        }
         this.db
-          .prepare(
-            "UPDATE app_meta SET value='0' WHERE key='economy_migration_notice'",
-          )
-          .run();
+          .transaction(() => {
+            this.db.exec(migration3);
+            this.db
+              .prepare("INSERT INTO schema_migrations VALUES(3,?,?)")
+              .run(hash(migration3), now());
+            this.db
+              .prepare(
+                "UPDATE app_meta SET value='3' WHERE key='schema_version'",
+              )
+              .run();
+          })
+          .immediate();
+      }
+      if (versions.length < 4) {
+        if (exists && path !== ":memory:") {
+          const safety = path + ".before-v4";
+          if (!existsSync(safety)) this.db.prepare("VACUUM INTO ?").run(safety);
+        }
+        this.db
+          .transaction(() => {
+            this.db.exec(migration4);
+            this.db
+              .prepare("INSERT INTO schema_migrations VALUES(4,?,?)")
+              .run(hash(migration4), now());
+            this.db
+              .prepare(
+                "UPDATE app_meta SET value='4' WHERE key='schema_version'",
+              )
+              .run();
+          })
+          .immediate();
+      }
       if (recover)
         this.db
           .prepare(
@@ -170,7 +203,6 @@ export class Store {
       this.snapshotCache = {
         revision,
         totals: this.totals(),
-        economy: economyRead(this.db, "snapshot", {}),
       };
     const t = this.snapshotCache.totals;
     return {
@@ -200,7 +232,6 @@ export class Store {
             committedMs: this.session.credited_ms,
           }
         : null,
-      ...this.snapshotCache.economy,
       earnedMs: t.earned,
       balanceMs: t.balance,
       todayMs:
@@ -250,7 +281,6 @@ export class Store {
           "INSERT INTO study_day_slices(entry_id,local_date,amount_ms) VALUES(?,?,?) ON CONFLICT(entry_id,local_date,timezone) DO UPDATE SET amount_ms=amount_ms+excluded.amount_ms",
         )
         .run(entry, s.date, s.ms);
-    advanceLoot(this.db, delta);
     this.db
       .prepare(
         "UPDATE study_sessions SET credited_ms=?,checkpoint_at=? WHERE id=?",
@@ -417,29 +447,7 @@ export class Store {
     }
   }
   read(method: Method, p: any): any {
-    const economy = economyRead(this.db, method, p);
-    if (economy !== undefined) return economy;
     switch (method) {
-      case "getUnseenLoot": {
-        const seen = Number(
-          (
-            this.db
-              .prepare("SELECT value FROM app_meta WHERE key='loot_seen'")
-              .get() as { value: string }
-          ).value,
-        );
-        const count = (
-          this.db
-            .prepare("SELECT COUNT(*) n FROM loot_events WHERE sequence>?")
-            .get(seen) as { n: number }
-        ).n;
-        const latest = this.db
-          .prepare(
-            "SELECT e.sequence,i.catalog_id,i.rarity_snapshot FROM loot_events e JOIN collectible_instances i ON i.id=e.instance_id WHERE e.sequence>? ORDER BY e.sequence DESC LIMIT 1",
-          )
-          .get(seen);
-        return { count, latest };
-      }
       case "getSnapshot":
         return this.snapshot();
       case "getSettings":
@@ -519,13 +527,6 @@ export class Store {
     }
   }
   mutate(method: Method, p: any): any {
-    const economy = economyMutate(
-      this.db,
-      method,
-      p,
-      () => this.totals().balance,
-    );
-    if (economy !== undefined) return economy;
     switch (method) {
       case "startStudy": {
         if (this.session) fail("ACTIVE_SESSION", "已有学习，请先结束当前会话");
@@ -571,6 +572,100 @@ export class Store {
           )
           .run(p.date, p.note);
         return null;
+      case "saveReward": {
+        const id = p.id ?? randomUUID();
+        if (p.id) {
+          if (
+            !this.db
+              .prepare(
+                "SELECT id FROM rewards WHERE id=? AND archived_at IS NULL",
+              )
+              .get(id)
+          )
+            fail("INVALID_INPUT", "奖励不存在");
+          this.db
+            .prepare(
+              "UPDATE rewards SET name=?,price_ms=?,version=version+1 WHERE id=?",
+            )
+            .run(p.name, p.priceMs, id);
+        } else
+          this.db
+            .prepare("INSERT INTO rewards VALUES(?,?,?,1,NULL)")
+            .run(id, p.name, p.priceMs);
+        return { id };
+      }
+      case "archiveReward":
+        this.db
+          .prepare(
+            "UPDATE rewards SET archived_at=?,version=version+1 WHERE id=?",
+          )
+          .run(now(), p.id);
+        return null;
+      case "prepareRedemption": {
+        const existing = this.read("getRedemptionIntent", {});
+        if (existing) return existing;
+        const r = this.db
+          .prepare("SELECT * FROM rewards WHERE id=? AND archived_at IS NULL")
+          .get(p.rewardId) as any;
+        if (!r) fail("REWARD_CHANGED", "奖励已归档");
+        const id = randomUUID();
+        this.db
+          .prepare(
+            "INSERT INTO redemption_intents(id,reward_id,reward_version,name_snapshot,price_amount,state,redemption_id,currency) VALUES(?,?,?,?,?,'pending',NULL,'study_ms')",
+          )
+          .run(id, r.id, r.version, r.name, r.price_ms);
+        return this.read("getRedemptionIntent", {});
+      }
+      case "cancelRedemption":
+        this.db
+          .prepare(
+            "UPDATE redemption_intents SET state='cancelled' WHERE id=? AND state='pending'",
+          )
+          .run(p.intentId);
+        return null;
+      case "confirmRedemption": {
+        const i = this.db
+          .prepare("SELECT * FROM redemption_intents WHERE id=?")
+          .get(p.intentId) as any;
+        if (!i) fail("INVALID_INPUT", "兑换意图不存在");
+        if (i.state === "confirmed")
+          return this.db
+            .prepare("SELECT * FROM redemptions WHERE id=?")
+            .get(i.redemption_id);
+        if (i.state !== "pending") fail("INVALID_INPUT", "兑换已取消");
+        const r = this.db
+          .prepare("SELECT * FROM rewards WHERE id=?")
+          .get(i.reward_id) as any;
+        if (r.archived_at || r.version !== i.reward_version)
+          fail("REWARD_CHANGED", "奖励已变化，请取消后重新选择");
+        if (this.totals().balance < i.price_amount)
+          fail("INSUFFICIENT_BALANCE", "可用时间不足，再学一会儿吧");
+        const id = randomUUID();
+        this.db
+          .prepare(
+            "INSERT INTO redemptions(id,intent_id,reward_id,name_snapshot,price_amount,created_at,currency,charged_ms) VALUES(?,?,?,?,?,?,'study_ms',?)",
+          )
+          .run(
+            id,
+            i.id,
+            r.id,
+            i.name_snapshot,
+            i.price_amount,
+            now(),
+            i.price_amount,
+          );
+        this.db
+          .prepare(
+            "INSERT INTO time_entries(id,kind,amount_ms,redemption_id,created_at) VALUES(?,'redeem',?,?,?)",
+          )
+          .run(randomUUID(), -i.price_amount, id, now());
+        this.db
+          .prepare(
+            "UPDATE redemption_intents SET state='confirmed',redemption_id=? WHERE id=?",
+          )
+          .run(id, i.id);
+        return this.db.prepare("SELECT * FROM redemptions WHERE id=?").get(id);
+      }
       case "createCourse": {
         const id = randomUUID();
         if (
@@ -638,20 +733,6 @@ export class Store {
           )
           .run(String(p.bytes));
         return null;
-      case "acknowledgeLoot":
-        this.db
-          .prepare(
-            "UPDATE app_meta SET value=MAX(CAST(value AS INTEGER),MIN(?,(SELECT COALESCE(MAX(sequence),0) FROM loot_events))) WHERE key='loot_seen'",
-          )
-          .run(p.sequence);
-        return null;
-      case "dismissMigrationNotice":
-        this.db
-          .prepare(
-            "UPDATE app_meta SET value='0' WHERE key='economy_migration_notice'",
-          )
-          .run();
-        return null;
       case "saveLink": {
         if (
           p.courseId &&
@@ -718,7 +799,6 @@ export class Store {
     if ((this.db.pragma("foreign_key_check") as unknown[]).length)
       throw new Error("外键校验失败");
     this.totals();
-    auditEconomy(this.db);
     const bad = this.db
       .prepare(
         "SELECT s.id FROM study_sessions s WHERE s.credited_ms != COALESCE((SELECT SUM(amount_ms) FROM time_entries WHERE session_id=s.id),0)",
@@ -731,12 +811,12 @@ export class Store {
       .all();
     const debits = this.db
       .prepare(
-        "SELECT r.id FROM redemptions r LEFT JOIN time_entries e ON e.redemption_id=r.id WHERE r.currency='study_ms' AND (e.id IS NULL OR e.amount_ms != -r.price_amount)",
+        "SELECT r.id FROM redemptions r LEFT JOIN time_entries e ON e.redemption_id=r.id WHERE e.id IS NULL OR e.kind!='redeem' OR e.amount_ms!=-r.charged_ms OR r.charged_ms>r.price_amount",
       )
       .all();
     const intents = this.db
       .prepare(
-        "SELECT i.id FROM redemption_intents i LEFT JOIN redemptions r ON r.id=i.redemption_id WHERE i.state='confirmed' AND (r.id IS NULL OR r.intent_id!=i.id OR r.name_snapshot!=i.name_snapshot OR r.price_amount!=i.price_amount OR r.currency!=i.currency OR r.reward_id!=i.reward_id)",
+        "SELECT i.id FROM redemption_intents i LEFT JOIN redemptions r ON r.id=i.redemption_id WHERE i.state='confirmed' AND (r.id IS NULL OR r.intent_id!=i.id OR r.name_snapshot!=i.name_snapshot OR r.price_amount!=i.price_amount OR r.reward_id!=i.reward_id)",
       )
       .all();
     const watermarks = this.db
@@ -746,14 +826,14 @@ export class Store {
       .all();
     const unsafe = this.db
       .prepare(
-        `SELECT id FROM rewards WHERE typeof(price_points)!='integer' OR price_points<=0 OR price_points>${MAX_MS / 1000} UNION ALL SELECT id FROM study_sessions WHERE typeof(target_ms)!='integer' OR target_ms<=0 OR target_ms>${MAX_MS} OR typeof(credited_ms)!='integer' OR credited_ms<0 OR credited_ms>${MAX_MS} UNION ALL SELECT id FROM time_entries WHERE typeof(amount_ms)!='integer' OR abs(amount_ms)>${MAX_MS}`,
+        `SELECT id FROM study_sessions WHERE typeof(target_ms)!='integer' OR target_ms<=0 OR target_ms>${MAX_MS} OR typeof(credited_ms)!='integer' OR credited_ms<0 OR credited_ms>${MAX_MS} UNION ALL SELECT id FROM time_entries WHERE typeof(amount_ms)!='integer' OR abs(amount_ms)>${MAX_MS}`,
       )
       .all();
     if (
-      bad.length ||
-      slices.length ||
       debits.length ||
       intents.length ||
+      bad.length ||
+      slices.length ||
       watermarks.length ||
       unsafe.length
     )

@@ -1,9 +1,9 @@
 {
   "name": "study-workbench",
   "productName": "积水书房",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "离线考研学习、时间奖励与玻璃水缸工作台",
+  "description": "离线学习计时、课程资料与积水书房",
   "author": "Study Workbench",
   "license": "UNLICENSED",
   "main": ".artifacts/build/main/main.cjs",
@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run tests/unit.test.ts",
-    "test:integration": "vitest run tests/integration.test.ts tests/upgrade.test.ts tests/storage-measure.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts tests/upgrade.test.ts tests/storage-measure.test.ts tests/time-shop-migration.test.ts",
     "test:e2e": "vitest run tests/visual-fixture.test.ts && playwright test",
     "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
     "postinstall": "node scripts/native-check.mjs",
@@ -24,7 +24,8 @@
     "test:realtime": "node scripts/real-time-check.mjs",
     "format": "prettier --write src tests scripts *.ts *.mjs *.json index.html",
     "check": "node scripts/checks.mjs",
-    "test:fixture": "vitest run tests/visual-fixture.test.ts"
+    "test:fixture": "vitest run tests/visual-fixture.test.ts",
+    "test:memory": "node scripts/performance.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.23",
@@ -65,7 +66,7 @@
     "appId": "io.studyworkbench.desktop",
     "productName": "积水书房",
     "directories": {
-      "output": ".artifacts/release/v0.4.0"
+      "output": ".artifacts/release/v1.0.0"
     },
     "files": [
       ".artifacts/build/**",

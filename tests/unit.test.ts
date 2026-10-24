@@ -61,21 +61,15 @@ describe("monotonic study time", () => {
   });
   it.each([0, -1, 1.2, Number.MAX_SAFE_INTEGER, Infinity])(
     "rejects unsafe reward price %s",
-    (pricePoints) => {
+    (priceMs) => {
       expect(
-        schemas.saveReward.safeParse({ name: "休息", pricePoints }).success,
+        schemas.saveReward.safeParse({ name: "休息", priceMs }).success,
       ).toBe(false);
     },
   );
 });
 
 it("new IPC responses reject invalid money and storage values", () => {
-  expect(() =>
-    parseMethodValue("confirmSale", {
-      id: "00000000-0000-4000-8000-000000000001",
-      points: 1.5,
-    }),
-  ).toThrow();
   expect(() =>
     parseMethodValue("getStorageUsage", { attachments: -1 }),
   ).toThrow();

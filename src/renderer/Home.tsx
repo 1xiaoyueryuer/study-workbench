@@ -12,6 +12,9 @@ export function Home({
   setTarget,
   controls,
   onSettings,
+  fullscreen,
+  onFullscreen,
+  busy,
 }: {
   snapshot: Snapshot;
   settings: Settings;
@@ -19,6 +22,9 @@ export function Home({
   setTarget: (n: number) => void;
   controls: ReactNode;
   onSettings: () => void;
+  fullscreen: boolean;
+  onFullscreen: () => void;
+  busy: boolean;
 }) {
   const active = !!snapshot.session,
     running = snapshot.phase === "running",
@@ -26,6 +32,16 @@ export function Home({
       ? snapshot.session!.effectiveMs / snapshot.session!.targetMs
       : 0,
     pending = snapshot.pendingMs;
+  const status =
+    snapshot.storage === "error"
+      ? "保存失败 · 仍有未保存时间"
+      : snapshot.phase === "recovery_pending"
+        ? "等待恢复确认"
+        : running
+          ? "实时估算 · 每约5秒保存"
+          : pending
+            ? "仍有未保存时间"
+            : "已保存";
   return (
     <section
       className={`rain-home ${active ? "is-active" : ""} ${running ? "is-raining" : ""}`}
@@ -38,13 +54,11 @@ export function Home({
           </div>
           <button
             className="scene-fullscreen"
-            onClick={() =>
-              document.fullscreenElement
-                ? document.exitFullscreen()
-                : document.documentElement.requestFullscreen()
-            }
+            disabled={busy}
+            aria-pressed={fullscreen}
+            onClick={onFullscreen}
           >
-            ⛶ 全屏专注
+            {fullscreen ? "退出全屏专注" : "⛶ 全屏专注"}
           </button>
         </header>
         <button className="rain-goal" onClick={onSettings}>
@@ -138,18 +152,19 @@ export function Home({
               <strong data-testid="balance">
                 {duration(snapshot.balanceMs + pending)}
               </strong>
-              <small>{pending ? "预计 · 含未保存时间" : ""}</small>
+              <small>{status}</small>
             </div>
             <div>
               <span>累计学习</span>
               <strong data-testid="earned">
                 {duration(snapshot.earnedMs + pending)}
               </strong>
-              <small>{pending ? "预计 · 含未保存时间" : ""}</small>
+              <small>{status}</small>
             </div>
             <div>
               <span>今日专注</span>
               <strong>{duration(snapshot.todayMs)}</strong>
+              <small>{status}</small>
             </div>
           </div>
           <div className="rain-save">

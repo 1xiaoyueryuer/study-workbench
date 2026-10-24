@@ -39,17 +39,6 @@ test("white bookshelf, course link, global search and preserving deletion", asyn
     await page.getByRole("button", { name: "确认", exact: true }).click();
     await page.getByRole("button", { name: "未归档" }).click();
     await expect(page.locator(".course-file")).toHaveCount(1);
-    await page.getByRole("button", { name: "收藏品", exact: true }).click();
-    await expect(page.locator(".collection-scene canvas")).toHaveCount(1);
-    await page.waitForTimeout(1200);
-    await page.screenshot({
-      path: resolve(".artifacts/tests/collection-empty.png"),
-    });
-    await page.getByRole("button", { name: "仓库 0/50" }).click();
-    await expect(page.locator(".inventory-slot")).toHaveCount(50);
-    await page.screenshot({
-      path: resolve(".artifacts/tests/warehouse-empty.png"),
-    });
   } finally {
     await app.close();
   }

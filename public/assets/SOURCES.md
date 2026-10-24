@@ -32,4 +32,4 @@
 - Phosphor：见 `Phosphor/LICENSE`，MIT。
 - Botanical：见 `Botanical/README.md`，仓库声明 CC0。
 
-本目录保存的是图标和植物矢量素材，并未下载字体或摄影。预览页中的布局与配色是针对考研工作台制作的本地示例，可自行修改。
+本目录保存离线图标和植物矢量素材；积水纹理与摄影来源见 Water/README.md。

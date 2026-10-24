@@ -30,6 +30,53 @@ if (process.env.STUDY_DATA_DIR)
 const locked = app.requestSingleInstanceLock();
 if (!locked) app.quit();
 let window: BrowserWindow;
+let focusRestore: { bounds: Electron.Rectangle; maximized: boolean } | null =
+  null;
+const windowState = () => ({
+  fullscreen: window.isFullScreen(),
+  maximized: window.isMaximized(),
+  minimized: window.isMinimized(),
+});
+const broadcastWindow = () => {
+  if (!window.isDestroyed())
+    window.webContents.send("workbench:window", windowState());
+};
+async function setFocusFullscreen(enabled: boolean) {
+  if (window.isFullScreen() === enabled) return windowState();
+  if (enabled)
+    focusRestore = {
+      bounds: window.getNormalBounds(),
+      maximized: window.isMaximized(),
+    };
+  const event = enabled ? "enter-full-screen" : "leave-full-screen";
+  await new Promise<void>((resolve, reject) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      (window as import("node:events").EventEmitter).removeListener(
+        event,
+        done,
+      );
+      if (window.isFullScreen() === enabled) resolve();
+      else reject(new DomainError("WINDOW_STATE", "原生全屏切换失败，请重试"));
+    }, 2000);
+    (window as import("node:events").EventEmitter).once(event, done);
+    try {
+      window.setFullScreen(enabled);
+    } catch (e) {
+      clearTimeout(timer);
+      (window as import("node:events").EventEmitter).removeListener(
+        event,
+        done,
+      );
+      reject(e);
+    }
+  });
+  broadcastWindow();
+  return windowState();
+}
 let data: Datasets;
 let exiting = false;
 let queue = Promise.resolve();
@@ -150,6 +197,10 @@ async function external(method: Method, req: Envelope) {
   if (!/^[a-f0-9-]{36}$/i.test(req.operationId))
     throw new Error("操作标识无效");
   switch (method) {
+    case "getWindowState":
+      return windowState();
+    case "setFocusFullscreen":
+      return setFocusFullscreen(p.enabled);
     case "openResource":
       await openResource(p.id);
       return null;
@@ -224,6 +275,29 @@ if (locked)
           sandbox: true,
         },
       });
+      window.on("enter-full-screen", broadcastWindow);
+      window.on("leave-full-screen", () => {
+        const restore = focusRestore;
+        focusRestore = null;
+        if (restore) {
+          if (restore.maximized) window.maximize();
+          else {
+            window.unmaximize();
+            window.setBounds(restore.bounds);
+          }
+        }
+        broadcastWindow();
+      });
+      for (const event of [
+        "maximize",
+        "unmaximize",
+        "minimize",
+        "restore",
+      ] as const)
+        (window as import("node:events").EventEmitter).on(
+          event,
+          broadcastWindow,
+        );
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       window.webContents.on("will-navigate", (e) => e.preventDefault());
       window.webContents.session.setPermissionRequestHandler((_w, _p, cb) =>
@@ -291,6 +365,8 @@ if (locked)
               blocked = method === "restoreBackup";
               if (
                 [
+                  "getWindowState",
+                  "setFocusFullscreen",
                   "openResource",
                   "chooseAndImportFiles",
                   "importDroppedPaths",
@@ -304,7 +380,11 @@ if (locked)
                 ].includes(method)
               ) {
                 const value = await external(method, request);
-                broadcast();
+                if (
+                  method !== "getWindowState" &&
+                  method !== "setFocusFullscreen"
+                )
+                  broadcast();
                 return { ok: true, value };
               }
               const result = data.store.command(method, request);

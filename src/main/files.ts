@@ -111,7 +111,7 @@ export class Datasets {
       const version = db
         .prepare("SELECT MAX(version) n FROM schema_migrations")
         .get() as { n: number };
-      if (version.n !== 1) return;
+      if (![1, 2, 3].includes(version.n)) return;
       const refs = db
         .prepare(
           "SELECT DISTINCT a.* FROM attachments a JOIN resources r ON r.attachment_id=a.id",
@@ -174,7 +174,7 @@ export class Datasets {
           Buffer.from(
             JSON.stringify({
               format: 1,
-              schema: 1,
+              schema: version.n,
               createdAt: new Date().toISOString(),
               files,
             }),
@@ -536,7 +536,7 @@ export class Datasets {
       }
       const manifest: Manifest = {
         format: 1,
-        schema: 2,
+        schema: 4,
         createdAt: new Date().toISOString(),
         files,
       };
@@ -669,7 +669,7 @@ export class Datasets {
       ) as Manifest;
       if (
         m.format !== 1 ||
-        ![1, 2].includes(m.schema) ||
+        ![1, 2, 3, 4].includes(m.schema) ||
         !Array.isArray(m.files)
       )
         throw new DomainError("UNSUPPORTED_BACKUP", "不支持此备份版本");
@@ -686,6 +686,25 @@ export class Datasets {
           (await shaFile(join(target, f.path))) !== f.sha256
         )
           throw new Error("备份哈希校验失败");
+      }
+      const source = new Database(join(target, "study.sqlite"), {
+        readonly: true,
+      });
+      try {
+        const actual = (
+          source
+            .prepare("SELECT MAX(version) n FROM schema_migrations")
+            .get() as { n: number }
+        ).n;
+        const meta = (
+          source
+            .prepare("SELECT value FROM app_meta WHERE key='schema_version'")
+            .get() as { value: string }
+        ).value;
+        if (actual !== m.schema || Number(meta) !== m.schema)
+          throw new Error("备份清单与数据库版本不匹配");
+      } finally {
+        source.close();
       }
       const s = new Store(join(target, "study.sqlite"), undefined, false);
       let summary: any;

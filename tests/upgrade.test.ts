@@ -8,7 +8,6 @@ import { Store } from "../src/main/store";
 import { migration } from "../src/main/schema";
 import { defaults, type Method } from "../src/shared/contracts";
 import { StudyClock } from "../src/main/time";
-import { advanceLoot, draw } from "../src/main/collection/loot";
 import { Datasets } from "../src/main/files";
 const stores: Store[] = [];
 afterEach(() => {
@@ -41,90 +40,7 @@ function setup() {
   };
   return { s, c, cmd, value, tick };
 }
-describe("v0.4 durable economy and collection", () => {
-  it("600s -> 10 points -> 2 point reward -> white sale, replay and rollback", () => {
-    const x = setup();
-    x.value("startStudy", { targetMs: 600000 });
-    x.tick(600000);
-    x.value("pauseStudy");
-    const q = x.value("quoteTimeConversion", { points: 10 });
-    const r = x.value("confirmTimeConversion", { intentId: q.id });
-    expect(x.value("confirmTimeConversion", { intentId: q.id })).toEqual(r);
-    const reward = x.value("saveReward", { name: "茶", pricePoints: 2 });
-    x.value("confirmRedemption", {
-      intentId: x.value("prepareRedemption", { rewardId: reward.id }).id,
-    });
-    expect(x.s.snapshot().pointsBalance).toBe(8);
-    x.s.db
-      .prepare(
-        "UPDATE loot_state SET target_ms=600000,progress_ms=599999,catalog_id='pebble'",
-      )
-      .run();
-    x.s.db.transaction(() => advanceLoot(x.s.db, 1))();
-    const item = x.value("getInventory")[0];
-    const sale = x.value("quoteSale", { ids: [item.id] });
-    x.s.db.exec(
-      "CREATE TRIGGER fail_sale BEFORE INSERT ON point_entries BEGIN SELECT RAISE(ABORT,'disk full'); END",
-    );
-    expect(x.cmd("confirmSale", { intentId: sale.id }).ok).toBe(false);
-    expect(x.value("getInventory")).toHaveLength(1);
-    x.s.db.exec("DROP TRIGGER fail_sale");
-    x.value("retrySave");
-    x.value("confirmSale", { intentId: sale.id });
-    x.value("confirmSale", { intentId: sale.id });
-    expect(x.s.snapshot().pointsBalance).toBe(9);
-    expect(x.s.totals()).toEqual({ earned: 600000, balance: 0 });
-    x.s.audit();
-  });
-  it("capacity freezes without backlog; full warehouse exchange is atomic", () => {
-    const x = setup();
-    const drop = () => {
-      x.s.db.prepare("UPDATE loot_state SET progress_ms=target_ms-1").run();
-      x.s.db.transaction(() => advanceLoot(x.s.db, 1))();
-    };
-    for (let i = 0; i < 50; i++) drop();
-    const first = x.value("getInventory")[0];
-    x.value("placeCollectible", { id: first.id, tankIndex: 0 });
-    drop();
-    const before = x.s.db.prepare("SELECT * FROM loot_state").get();
-    x.s.db.transaction(() => advanceLoot(x.s.db, 3600000))();
-    expect(x.s.db.prepare("SELECT * FROM loot_state").get()).toEqual(before);
-    expect(x.cmd("returnCollectible", { id: first.id }).ok).toBe(false);
-    const second = x.value("getInventory")[0];
-    x.value("placeCollectible", { id: second.id, tankIndex: 0 });
-    expect(x.value("getInventory")).toHaveLength(50);
-    expect(x.value("getCollection")[0].id).toBe(second.id);
-    const sale = x.value("quoteSale", { ids: [first.id] });
-    x.value("confirmSale", { intentId: sale.id });
-    expect(x.s.snapshot().inventoryCount).toBe(49);
-    expect(x.s.db.prepare("SELECT * FROM loot_state").get()).toEqual(before);
-    x.s.audit();
-  });
-  it("RNG interval and all rarity boundaries are deterministic", () => {
-    for (const [roll, rarity] of [
-      [0, 0],
-      [4999, 0],
-      [5000, 1],
-      [7799, 1],
-      [7800, 2],
-      [9199, 2],
-      [9200, 3],
-      [9799, 3],
-      [9800, 4],
-      [9979, 4],
-      [9980, 5],
-      [9999, 5],
-    ]) {
-      let n = 0;
-      const result = draw((min, max) => {
-        expect(max).toBeGreaterThan(min);
-        return n++ === 0 ? 1800000 : n === 2 ? roll : 0;
-      });
-      expect(result.target).toBe(1800000);
-      expect(result.item.rarity).toBe(rarity);
-    }
-    expect(draw((min) => min).target).toBe(600000);
-  });
+describe("bounded learning ledger and courses", () => {
   it("checkpoint growth is bounded to one income and one row per day", () => {
     const x = setup();
     x.value("startStudy", { targetMs: 600000 });
@@ -221,12 +137,9 @@ it("real published v1 migration preserves time, slices, receipts, links, quote r
   stores.push(s);
   expect(s.totals()).toEqual({ earned: 120000, balance: 59000 });
   expect(s.snapshot()).toMatchObject({
-    pointsBalance: 0,
-    inventoryCount: 0,
     phase: "recovery_pending",
-    migrationNotice: true,
   });
-  expect(s.read("listRewards", {})[0].price_points).toBe(2);
+  expect(s.read("listRewards", {})[0].price_ms).toBe(120000);
   expect(s.read("listRedemptions", { offset: 0 })[0]).toMatchObject({
     price_amount: 61000,
     currency: "study_ms",
@@ -241,9 +154,6 @@ it("real published v1 migration preserves time, slices, receipts, links, quote r
   expect(
     s.read("listCourses", {}).some((c: { id: string }) => c.id === course),
   ).toBe(true);
-  expect(s.db.prepare("SELECT progress_ms FROM loot_state").get()).toEqual({
-    progress_ms: 0,
-  });
   s.audit();
   expect((await readdir(dir)).includes("study.sqlite.before-v2")).toBe(true);
 });
@@ -321,5 +231,5 @@ it("interrupted schema DDL rolls back every prior step and closes the failed con
   const retry = new Store(path);
   stores.push(retry);
   retry.audit();
-  expect(retry.snapshot().pointsBalance).toBe(0);
+  expect(retry.snapshot().earnedMs).toBe(0);
 });

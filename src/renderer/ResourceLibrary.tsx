@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button, Modal } from "./components/ui";
 import type { PageActions } from "./pages/Shop";
+const BOOKS_PER_PAGE = 8;
 type Course = { id: string; name: string; resource_count: number };
 type Resource = {
   id: string;
@@ -157,7 +158,7 @@ export function ResourceLibrary({
                   !search ||
                   c.name.toLowerCase().includes(search.toLowerCase()),
               )
-              .slice(bookPage * 30, bookPage * 30 + 30)
+              .slice(bookPage * BOOKS_PER_PAGE, (bookPage + 1) * BOOKS_PER_PAGE)
               .map((c, i) => (
                 <button
                   className="course-book"
@@ -192,7 +193,7 @@ export function ResourceLibrary({
             <span>{bookPage + 1}</span>
             <button
               disabled={
-                (bookPage + 1) * 30 >=
+                (bookPage + 1) * BOOKS_PER_PAGE >=
                 courses.filter((c) => !search || c.name.includes(search)).length
               }
               onClick={() => setBookPage(bookPage + 1)}
